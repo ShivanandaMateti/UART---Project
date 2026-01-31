@@ -288,7 +288,6 @@ always @(posedge clk , posedge reset) begin
                     begin
                      count_s          <= 1;
                      present_state    <= error;
-                     load_reg            <= 1'b1;
                     end 
                   end
             end
@@ -356,6 +355,7 @@ always @(posedge clk , posedge reset) begin
                   end
             end
             error : begin
+                    load_reg            <= 1'b1;
                   if(in)
                   begin
                     if(count_s < N)
