@@ -17,9 +17,6 @@ baud_gen_T Baudgenarator(
     // Clock
     initial clk = 0;
     always #0.001302083 clk = ~clk;   // time period of clock = 2.604167us
-    initial begin 
-    $dumpfile("baud_gen_T.vcd");
-    $dumpvars(0,baud_gen_T_test);
     #100 $finish;
     end
   
