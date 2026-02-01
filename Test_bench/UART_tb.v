@@ -5,9 +5,10 @@ module uart_protocol_tb;
     reg clk;
     reg reset;
     reg send;
+    reg load;
     reg [7:0] data_in;
 
-
+    
     wire busy;
     wire done;
     wire [7:0] data_out;
@@ -19,6 +20,7 @@ module uart_protocol_tb;
     UART_Protocol   UART_DUT(
                             .clk(clk),
                             .reset(reset),
+                            .load(load),
                             .send(send),
                             .data_in(data_in),
                             .done(done),
@@ -32,7 +34,7 @@ module uart_protocol_tb;
         $dumpfile("Uart_protocol.vcd");
         $dumpvars(0, uart_protocol_tb);
 
-                 reset = 1 ; send = 1'b0 ; data_in = 8'h00 ;
+                 reset = 1 ; send = 1'b0 ; data_in = 8'h00 ;load=1'b0;
         #0.1145837  reset = 0; send = 1'b1; data_in = 8'h18; #0.1145837 send = 1'b0;  // simple data transmission check
         #1.2500004 data_in = 8'h45;                                                  // data is send but send=0 so not taken
         #0.1145837 send = 1'b1 ; data_in = 8'h00 ; #0.1145837 send = 1'b0;          // after making send 1 data is transmitted again
