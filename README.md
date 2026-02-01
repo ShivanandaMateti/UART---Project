@@ -1,2 +1,2 @@
 # UART---Project
-This is a simple UART protocol implemented in Verilog HDL .....  But not like every other repositories , here you can find a complete working of combined transmitter and receiver.... After receiver an Asynchronous FIFO is used to synchronise data to system clock domain as an industry level application...  
+This is a UART protocol implemented in Verilog HDL . But not like every other repositories , here you can find a complete working of combined transmitter and receiver . Receiver is over sampled by 8x sampling with mid bit sampling for Robust Synchronization 
