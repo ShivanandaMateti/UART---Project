@@ -3,6 +3,7 @@ module UART_Protocol(
     input clk,
     input reset,
     input send,
+    input load,
     input [7:0] data_in,
     output [7:0]data_out,
     output done,
@@ -10,7 +11,7 @@ module UART_Protocol(
 
 );
 
-wire transmitter,load;
+wire transmitter;
 
 UART_TRANSMITTER   Transmitter(
                                 .clk(clk),
@@ -550,7 +551,7 @@ always @(posedge clk , posedge reset) begin
                   end
             end
             error : begin
-                    load_reg            <= 1'b1;
+                    load_reg <= 1'b1;
                   if(in)
                   begin
                     if(count_s < N)
