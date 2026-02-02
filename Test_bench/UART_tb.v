@@ -2,8 +2,7 @@
 
 module uart_protocol_tb;
 
-    reg clk_T;
-    reg clk_R;
+    reg clk;
     reg reset;
     reg send;
     reg load;
@@ -14,16 +13,13 @@ module uart_protocol_tb;
     wire done;
     wire [7:0] data_out;
 
-    // Transmitter Clock
-    initial clk_T = 0;
-    always #0.001302083 clk_T = ~clk_T;   // time period of clock = 2.604167us  // one baud tick of transmitter occurs for every 0.1041667ms
-    // Receiver clock
-    initial clk_R = 0;
-    always #0.001302083 clk_R = ~clk_R;   // time period of clock = 2.604167us  // one baud tick of receiver occurs for every 0.1041667ms
+    //  Clock
+    initial clk = 0;
+    always #0.001302083 clk = ~clk ;   // time period of clock = 2.604167us  // one baud tick of transmitter occurs for every 0.1041667ms
     
     UART_Protocol   UART_DUT(
-                            .clk_T(clk_T),
-                            .clk_R(clk_R),
+                            
+                            .clk(clk),
                             .reset(reset),
                             .load(load),
                             .send(send),
