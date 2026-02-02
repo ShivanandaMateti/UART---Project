@@ -1,6 +1,7 @@
 module UART_Protocol(
 
-    input clk,
+    input clk_T,
+    input clk_R,
     input reset,
     input send,
     input load,
@@ -14,7 +15,7 @@ module UART_Protocol(
 wire transmitter;
 
 UART_TRANSMITTER   Transmitter(
-                                .clk(clk),
+                                .clk(clk_T),
                                 .reset(reset),
                                 .send(send),
                                 .load(load),
@@ -25,7 +26,7 @@ UART_TRANSMITTER   Transmitter(
 
 
 UART_RECEIVER      Receiver(
-                                .clk(clk),
+                                .clk(clk_R),
                                 .reset(reset),
                                 .in(transmitter),
                                 .data_out(data_out),
@@ -591,6 +592,3 @@ assign data_out =  data_correct;
 assign load =  load_reg;
 
 endmodule
-
-
-
