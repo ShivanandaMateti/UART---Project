@@ -5,12 +5,12 @@ module baud_gen_test;
 reg clk;
 reg reset;
 
-wire baud_tick;
+wire Sample_tick;
 
 baud_gen_R Baudgenarator(
                          .clk(clk),
                          .reset(reset),
-                         .baud_tick_R(baud_tick)
+                         .Sample_tick_R(Sample_tick)
 );
 
 
