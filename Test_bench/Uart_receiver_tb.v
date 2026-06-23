@@ -17,11 +17,17 @@ wire load;
 
 // parameters
 
+parameter SamplingWidth = 16;
+parameter DataWidth = 8;
 localparam bittime = 273;
 
 
 // Instantiation
-UART_RECEIVER   DUT (
+UART_RECEIVER   #(
+                    .SamplingWidth(SamplingWidth),
+                    .DataWidth(DataWidth)
+
+                )DUT (
                         .r_clk(r_clk),
                         .rx(rx),
                         .reset(reset),

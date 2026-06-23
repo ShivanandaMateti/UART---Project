@@ -1,13 +1,17 @@
 /* RECEIVER */
 
-module UART_RECEIVER(
-    input r_clk,
-    input rx,
-    input reset,
-    output [7:0]data_out,
-    output done,
-    output load
-);
+module UART_RECEIVER  #(
+                            parameter SamplingWidth = 16,
+                            parameter DataWidth = 8
+                        )      
+                        (
+                             input r_clk,
+                             input rx,
+                             input reset,
+                             output [7:0]data_out,
+                             output done,
+                             output load
+                        );
 
 
 wire Sample_tick,restart;
@@ -20,7 +24,12 @@ Sample_gen  R_S(
             );
 
 
-receiver     R(
+receiver     #(
+                    .SamplingWidth(SamplingWidth),
+                    .DataWidth(DataWidth)
+
+                )
+                R(
                .rx(rx),
                .reset(reset),
                .r_clk(r_clk),
@@ -70,33 +79,37 @@ endmodule
 
 
 
-module receiver(
-    input rx,
-    input Sample_tick,
-    input reset,
-    input r_clk,
-    output [7:0] data_out,
-    output restart,
-    output done,
-    output load
-);
+module receiver #(
+                   parameter SamplingWidth = 16,
+                   parameter DataWidth = 8
+
+                )
+                    (
+                    input rx,
+                    input Sample_tick,
+                    input reset,
+                    input r_clk,
+                    output [7:0] data_out,
+                    output restart,
+                    output done,
+                    output load
+                    );
 localparam start = 0,
            data = 1,
            parity = 2,
            stop = 3,
            correct = 4,
            error = 5,
-           idle = 6,
-           SamplingWidth = 16,
-           DataWidth = 8;
+           idle = 6;
+           
 
 reg [2:0] present_state;
 reg load_reg;
 reg restart_reg;
-reg p; // flag for detecting parity,start and stop bits at midpoint
+reg p;                  // flag for detecting parity,start and stop bits at midpoint
 reg [7:0] data_temp;
 reg [7:0] data_correct;
-reg [3:0] count_s = 0; // sampling counter
+reg [3:0] count_s = 0;  // sampling counter
 reg [2:0] data_bit_count = 0;         // data bit counter
 initial load_reg = 1'b0;
 

@@ -1,116 +1,150 @@
-module UART_Protocol(
+module UART_Protocol #(
+                            parameter DataWidth = 8,
+                            parameter SamplingWidth = 16
+                      )
+                        (
+                                // inputs to tx
+                                input t_clk, 
+                                input reset,   // common for both
+                                input send,    
+                                input load_in, 
+                                input [DataWidth-1:0] data_in,
+                                // inputs to rx
+                                input rx,    
+                                input r_clk,
+                                // outputs to tx
+                                output tx,
+                                output busy,
+                                // outputs to rx
+                                output[DataWidth-1:0] data_out,
+                                output done,
+                                output load_out,
 
-    input clk,
-    input reset,
-    input send,
-    input load,
-    input [7:0] data_in,
-    output [7:0]data_out,
-    output done,
-    output busy
+                        );
 
-);
 
-wire transmitter;
+wire Tx;
 
-UART_TRANSMITTER   Transmitter(
-                                .clk(clk),
+UART_TRANSMITTER   #(
+                        .DataWidth(DataWidth)
+                    )Transmitter(
+                                .t_clk(t_clk),
                                 .reset(reset),
                                 .send(send),
-                                .load(load),
+                                .load(load_in),
                                 .data_in(data_in),
-                                .Transmitter(transmitter),
+                                .Tx(Tx),
                                 .busy(busy)
-);
+                                );
+
+stage2_sync    (
+                    .in(Tx),
+                    .reset(reset),
+                    .clk(r_clk),
+                    .sync(tx)
+
+                );
 
 
-UART_RECEIVER      Receiver(
-                                .clk(clk),
+UART_RECEIVER    #(
+                        .DataWidth(DataWidth),
+                        .SamplingWidth(SamplingWidth)
+
+                  )  Receiver(
+                                .r_clk(r_clk),
                                 .reset(reset),
-                                .in(transmitter),
+                                .rx(rx),
                                 .data_out(data_out),
                                 .done(done),
-                                .load(load)                            
-);
+                                .load(load_out)                            
+                            );
 
 endmodule
 
 
 /* TRANSMITTER */
 
-module UART_TRANSMITTER(
-    input clk,
-    input reset,
-    input send,
-    input load,
-    input [7:0] data_in,
-    output Transmitter,
-    output busy
-);
-wire baud_tick_T;
-wire [10:0] packet;
-baud_gen_T B_T(
-                .clk(clk),
+module UART_TRANSMITTER #(
+                            parameter DataWidth = 8
+                        )(
+                            input t_clk,
+                            input reset,
+                            input send,
+                            input load,
+                            input [DataWidth-1:0] data_in,
+                            output Tx,
+                            output busy
+                        );
+wire baud_tick;
+wire [DataWidth+2 : 0] packet;
+baud_gen B_T(
+                .t_clk(t_clk),
                 .reset(reset),
-                .baud_tick_T(baud_tick_T)
-);
+                .baud_tick(baud_tick)
+            );
 
-packetMaker P_T(
-                .data_in(data_in),
-                .packet(packet)
-);
+frame_data #(.DataWidth(DataWidth))
+                            P_T(
+                                .data_in(data_in),
+                                .packet(packet)
+                                );
 
-transmitter T(
-            .clk(clk),
-            .baud_tick_T(baud_tick_T),
+transmitter #(.DataWidth(DataWidth))
+            T(
+            .t_clk(t_clk),
+            .baud_tick(baud_tick),
             .reset(reset),
             .send(send),
             .load(load),
             .packet(packet),
-            .Transmitter(Transmitter),
+            .Tx(Tx),
             .busy(busy)
-);
+            );
+
 endmodule
 
-//baudrate of transmitter = 9600 bits/s
+// baudrate of transmitter = 3906250bps i.e 260ns
+// transmitter clk period  = 16ns 
+// hence for 260ns we use clock divider of 16 (since 16*16 = 256 approx(260) )
 
-module baud_gen_T (
-    input clk,
+module baud_gen (
+    input t_clk,
     input reset,
-    output baud_tick_T
+    output baud_tick
 );
 
-integer count = 1;
-reg baud_tick_T_reg;
-initial baud_tick_T_reg = 1'b0;
-always @(posedge clk,posedge reset) 
+reg [4:0] count = 1;
+reg baud_tick_reg;
+always @(posedge t_clk,posedge reset) 
 begin
     if(reset)
     begin 
         count <= 1;
-        baud_tick_T_reg <= 1'b1;
+        baud_tick_reg <= 1'b0;
     end
-    else if(count==40)     // count = 40 since // time period of clock = 2.604167  // one baud tick of transmitter occurs for every 0.1041667ms
+    else if(count==16)     // count = 16 since // time period of clock = 16ns  // one baud tick of transmitter occurs for every 256ns i.e 260ns
     begin
         count <= 1;
-        baud_tick_T_reg <= 1'b1;
+        baud_tick_reg <= 1'b1;
     end
     else 
     begin
         count <= count + 1;
-        baud_tick_T_reg <= 1'b0;
+        baud_tick_reg <= 1'b0;
     end        
 end
 
-assign baud_tick_T = baud_tick_T_reg;
+assign baud_tick = baud_tick_reg;
 
 endmodule
 
-module packetMaker(
+module frame_data#(
+                    parameter DataWidth = 8
+                )(
             
-            input [7:0]   data_in,
-            output [10:0] packet
-);
+                        input  [DataWidth-1:0] data_in,
+                        output [DataWidth+2:0] packet
+                );
 
 wire p ;
 assign p = ~(^data_in);
@@ -119,37 +153,40 @@ assign packet = {1'b1,p,data_in[7:0],1'b0};
 
 endmodule
 
-module transmitter
-(
+module transmitter  #(
+                        parameter DataWidth = 8
+                     )
+                        (
 
-input clk,
-input baud_tick_T,
-input send,
-input reset,
-input load,
-input [10:0] packet,
-output Transmitter,
-output busy
+                            input t_clk,
+                            input baud_tick,
+                            input send,
+                            input reset,
+                            input load,
+                            input [DataWidth+2:0] packet,
+                            output Tx,
+                            output busy
 
-);
+                        );
 
 
 
-reg tx; // shows the output of transmitter
-reg [10:0] packet_temp;        // to shift data and transmit
-reg [10:0] packet_load_ready ; // for storing data to resend if data sent isn't correct 
-reg [3:0] b ;         // for counting no of bits transmitted
-reg transmitting;  // can be used to check if transmitting
+reg tx;                        // shows the output of transmitter
+reg [DataWidth+2:0] packet_temp;        // to shift data and transmit
+reg [DataWidth+2:0] packet_load_ready ; // for storing data to resend if data sent isn't correct 
+reg [3:0] b ;                  // for counting no of bits transmitted
+reg transmitting;              // can be used to check if transmitting
 
 initial 
 begin 
     b =4'd0 ; 
-    transmitting = 1'b0;     // initializing them to start transmission 
-    tx = 1'b1;                // initially transmitter is in ideal state 
+    transmitting = 1'b0;           // initializing them to start transmission 
+    tx = 1'b1;                     // initially transmitter is in idle state 
+    packet_load_ready = 11'h7ff;   // if load occurs before send this treats as an idle state
 end  
        
  
-always @(posedge clk,posedge reset)
+always @(posedge t_clk,posedge reset)
 begin
     if(reset)
     begin
@@ -171,10 +208,10 @@ begin
     end
     else 
     begin
-        if(baud_tick_T && transmitting )
+        if(baud_tick && transmitting )
             begin
                 tx                 <=  packet_temp[0];
-                packet_temp        <=  {1'b1,packet_temp[10:1]};
+                packet_temp        <=  {1'b1,packet_temp[DataWidth+2:1]};
                 if(b==4'd10)
                 begin
                     b              <=    4'd0;
@@ -187,7 +224,7 @@ begin
 end
 
 
-assign Transmitter = tx;
+assign Tx = tx;
 assign busy = ((send && ~transmitting) || transmitting);
 
 
@@ -196,399 +233,291 @@ endmodule
 
 /* RECEIVER */
 
-module UART_RECEIVER(
-    input clk,
-    input in,
-    input reset,
-    output [7:0]data_out,
-    output done,
-    output load
-);
+module UART_RECEIVER  #(
+                            parameter SamplingWidth = 16,
+                            parameter DataWidth = 8
+                        )      
+                        (
+                             input r_clk,
+                             input rx,
+                             input reset,
+                             output [7:0]data_out,
+                             output done,
+                             output load
+                        );
 
-wire Sample_tick_R;
-Sample_gen_R     B_R(
-                   .clk(clk),
-                   .reset(reset),
-                   .Sample_tick_R(Sample_tick_R)
-);
-receiver     R(
-               .in(in),
+
+wire Sample_tick,restart;
+
+Sample_gen  R_S( 
+                .r_clk(r_clk),
+                .reset(reset),
+                .restart(restart),
+                .Sample_tick(Sample_tick)
+            );
+
+
+receiver     #(
+                    .SamplingWidth(SamplingWidth),
+                    .DataWidth(DataWidth)
+
+                )
+                R(
+               .rx(rx),
                .reset(reset),
-               .clk(clk),
-               .Sample_tick_R(Sample_tick_R),
+               .r_clk(r_clk),
+               .Sample_tick(Sample_tick) ,
                .data_out(data_out),
                .done(done),
-               .load(load)
+               .load(load),
+               .restart(restart)
 );
 endmodule
 
-// Sampling_rate_receiver = ( baud_rate_T * 8 ) = (9600*8) 76800 samples/sec;
+// baudrate = 3906250bps i.e 3.9 MHz
+// rx clk period = 5ns
+// Sampling rate = 62500000sps i.e 62.5 MHz == 20ns
+// so we used a clock divider of 4 to reach 20ns
 
-module Sample_gen_R (
-    input   clk,
-    input   reset,
-    output  Sample_tick_R
-);
-integer count = 1;
-reg Sample_tick_R_reg;
+module Sample_gen (
+                    input r_clk,
+                    input reset,
+                    input restart,
+                    output Sample_tick
+                  );
 
-initial Sample_tick_R_reg <= 1'b0;
-always @(posedge clk) begin
-    if(reset)
-    begin
-       count <= 1;
-       Sample_tick_R_reg  <= 1'b1;
-    end
-    else if(count==5) begin     // count = 5 since // time period of clock = 2.604167us  // one sample tick of receiver occurs for every 0.013020833ms
-       count <= 1;
-       Sample_tick_R_reg  <= 1'b1;
+reg [2:0] count;
+reg Sample_tick_reg;
+always@(posedge r_clk,posedge reset)begin
+    if(reset || restart)begin
+        Sample_tick_reg <= 0;
+        count           <= 1;
     end
     else begin
-        count <= count + 1;
-        Sample_tick_R_reg <= 1'b0;
-    end        
+        count       <= count + 3'd1;
+        if(count == 3'd4)begin
+            Sample_tick_reg <= 1;
+            count           <= 1;
+        end
+        else
+            Sample_tick_reg <= 0;
+    end
 end
+assign Sample_tick  = Sample_tick_reg; 
 
-assign Sample_tick_R = Sample_tick_R_reg;
 
 endmodule
 
 
-module receiver(
-    input in,
-    input Sample_tick_R,
-    input reset,
-    input clk,
-    output [7:0] data_out,
-    output done,
-    output load
-);
-localparam idle = 0,
-           start = 1,
-           d0 = 2,
-           d1 = 3,
-           d2 = 4,
-           d3 = 5,
-           d4 = 6,
-           d5 = 7,
-           d6 = 8,
-           d7 = 9,
-           parity = 10,
-           error = 11,
-           stop = 12;
 
-reg [3:0] present_state;
-reg p=1'b1;
+
+
+module receiver #(
+                   parameter SamplingWidth = 16,
+                   parameter DataWidth = 8
+
+                )
+                    (
+                    input rx,
+                    input Sample_tick,
+                    input reset,
+                    input r_clk,
+                    output [7:0] data_out,
+                    output restart,
+                    output done,
+                    output load
+                    );
+localparam start = 0,
+           data = 1,
+           parity = 2,
+           stop = 3,
+           correct = 4,
+           error = 5,
+           idle = 6;
+           
+
+reg [2:0] present_state;
 reg load_reg;
+reg restart_reg;
+reg p;                  // flag for detecting parity,start and stop bits at midpoint
 reg [7:0] data_temp;
 reg [7:0] data_correct;
-parameter N = 8;
-integer count_s = 1;
+reg [3:0] count_s = 0;  // sampling counter
+reg [2:0] data_bit_count = 0;         // data bit counter
 initial load_reg = 1'b0;
+
 // state transition logic
 // assigning state
-always @(posedge clk , posedge reset) begin
+always @(posedge r_clk , posedge reset) begin
     if(reset) begin
         present_state <= idle;
         data_correct  <= 8'h00;
         data_temp     <= 8'h00;
-        p             <= 1'b1 ;
-        count_s       <= 1    ;
-    end     
-    else 
-    begin
-        if(Sample_tick_R) begin
+        count_s       <= 0;
+        data_bit_count<= 0;
+        restart_reg   <= 1'b0;
+        p             <= 1'b0;
+        load_reg      <= 1'b0;
+    end
+    else if(rx==0 && (present_state == idle)) begin
+        present_state     <= start;
+        restart_reg       <= 1'b1;
+    end
+    else begin
+        restart_reg       <= 1'b0;
+        if(Sample_tick) begin
             case(present_state)
-            idle : begin
-                    load_reg         <= 1'b0;
-                    if(in==0)begin
-                    if(count_s < N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s       <= 1;  
-                     present_state <= start; 
-                    end 
-                    end
-                  end
+
             start : begin
-                    if(count_s==N/2)
+                    load_reg <= 0;
+                    if(count_s == SamplingWidth/2)
                     begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[0]   <= in;    
+                        count_s      <= count_s + 1;
+                        if(rx==0)
+                            p <= 1;
+                        else
+                            p <= 0;
                     end
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                    end
+                    else if(count_s < SamplingWidth-1)
+                        count_s        <= count_s + 1;
                     else
-                    begin
-                     count_s        <= 1;
-                     present_state  <= d0;
+                        begin
+                            count_s        <= 0;
+                            if(p)begin
+                                present_state  <= data;
+                                data_bit_count   <= 0;
+                            end
+                            else 
+                                present_state  <= idle;    
+                        end
                     end
-                    end
-            d0    : begin
-                    if(count_s==N/2)
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[1]   <= in;   
-                    end
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s        <= 1;
-                     present_state  <= d1;
-                    end 
-                    end
-            d1    : begin
-                    if(count_s==N/2)
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[2]   <= in;    
-                    end 
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s        <=  1;
-                     present_state  <= d2;
-                    end
-                    end
-            d2    : begin
-                    if(count_s==N/2)
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[3]   <= in;   
-                    end 
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s        <= 1;
-                     present_state  <= d3;
-                    end
-                    end
-            d3    : begin 
-                    if(count_s==N/2)
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[4]   <= in;    
-                    end
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s        <= 1;
-                     present_state  <= d4;
-                    end
-                    end
-            d4    : begin
-                    if(count_s==N/2)
-                    begin
-                        present_state  <= present_state;
-                        count_s        <= count_s +1;
-                        data_temp[5]   <= in;     
-                    end
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state <= present_state;
-                        count_s       <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= d5;
-                    end
-                    end
-            d5    : begin
-                    if(count_s==N/2)
-                    begin
-                        present_state <= present_state;
-                        count_s       <= count_s +1;
-                        data_temp[6]  <= in;     
-                    end 
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state <= present_state;
-                        count_s       <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s          <=  1;
-                     present_state    <= d6;
-                    end 
-                    end
-            d6    : begin
-                    if(count_s==N/2 )
-                    begin
-                        present_state <= present_state;
-                        count_s       <= count_s +1;
-                        data_temp[7]  <= in;     
-                    end 
-                    else if(count_s >=1 && count_s <N )
-                    begin
-                        present_state <= present_state;
-                        count_s       <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= d7;
-                     p                <= ~(^data_temp);
-                    end
-                    end
-            d7    : begin
-                    if(in==p)
-                    begin
-                    if(count_s<N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
+
+            data  : if(count_s == SamplingWidth/2)
+                        begin
+                            count_s                    <= count_s + 1;
+                            data_temp[data_bit_count]  <= rx;
+                        end
+                    else if(count_s < SamplingWidth-1 )
+                            count_s        <= count_s +1;
                     else 
-                    begin
-                     count_s          <= 1;
-                     present_state    <= parity;
-                    end 
-                    end
+                        begin 
+                            if(data_bit_count == DataWidth-1) begin
+                                  present_state <= parity;
+                                  count_s <= 0;
+                            end
+                            else begin
+                                 data_bit_count <= data_bit_count + 1;
+                                 count_s <= 0;
+                            end
+                        end
+            parity  :if(count_s == SamplingWidth/2)
+                        begin
+                            count_s                 <= count_s + 1;
+                            if(rx == ~(^data_temp))
+                                p <= 1;
+                            else
+                                p <= 0;
+                        end
+                    else if(count_s<SamplingWidth-1)
+                                count_s          <= count_s + 1; 
                     else
-                    begin
-                    if(count_s < N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
-                    else 
-                    begin
-                     count_s          <= 1;
-                     present_state    <= error;
-                    end 
-                  end
-            end
-            parity: begin
-                    if(in)
-                    begin
-                    if(count_s==N/2)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                     data_correct     <= data_temp;
-                    end
-                    else if(count_s<N)
-                    begin
-                     count_s          <= count_s +1; 
-                     present_state    <= present_state;
-                    end 
+                        begin
+                                count_s          <= 0;
+                                if(p)
+                                    present_state    <= stop;
+                                else
+                                    present_state    <= error;
+                        end
+
+            stop    :if(count_s == SamplingWidth/2)
+                        begin
+                            count_s      <= count_s + 1;
+                            if(rx)begin
+                                p <= 1;
+                                data_correct <= data_temp;
+                            end
+                            else
+                                p <= 0;
+                        end
+                    else if(count_s < SamplingWidth-1)
+                                count_s          <= count_s +1; 
                     else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= stop;
-                     p                <= 1'b1;
-                    end
-                    end
-                    else
-                    begin
-                    if(count_s<N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
-                    else 
-                    begin
-                     count_s          <= 1;
-                     present_state    <= error;
-                    end 
-                    end
-            end
-            stop  : begin
-                  if(in)
-                  begin
-                    if(count_s < N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
-                    else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= idle;
-                    end 
-                  end
-                  else
-                  begin
-                    if(count_s < N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
-                    end
-                    else 
-                    begin
-                     count_s          <= 1;
-                     present_state    <= start;
-                    end 
-                  end
-            end
+                        begin
+                                count_s          <= 0;
+                                if(p)
+                                    present_state    <= correct;
+                                else
+                                    present_state    <= error;
+                        end
+
+            correct  : present_state <= idle;       
+
             error : begin
                     load_reg <= 1'b1;
-                  if(in)
-                  begin
-                    if(count_s < N)
+                    if(count_s == SamplingWidth/2)
                     begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
+                        count_s     <= count_s + 1;
+                        if(rx)
+                            p <= 1;
+                        else
+                            p <= 0;
                     end
+                    else if(count_s < SamplingWidth-1)
+                            count_s          <= count_s +1;
                     else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= idle;
-                    end 
-                  end
-                  else
-                  begin
-                    if(count_s < N)
-                    begin
-                     present_state    <= present_state;
-                     count_s          <= count_s +1;
+                        begin
+                            count_s          <= 0;
+                            if(p)
+                                present_state    <= idle;
+                             else
+                                present_state    <= error;
+                        end
                     end
-                    else
-                    begin
-                     count_s          <= 1;
-                     present_state    <= present_state;
-                    end 
-                  end
-                  end
-                endcase
+                  
+            endcase
+        end
     end
-    end
-    end
+end
+
 
 // assigning output
 
-assign done = (present_state == stop);
+assign done = (present_state == correct);
 assign data_out =  data_correct;
 assign load =  load_reg;
+assign restart = restart_reg;
 
 endmodule
+
+module stage2_sync
+                    (
+                        input in,
+                        input reset,
+                        input clk,
+                        output sync
+                    );
+reg q;
+reg sync_reg;
+
+d_ff     stage1  (.d(in),.clk(clk),.reset(reset),.q(q));
+d_ff     stage2  (.d(q),.clk(clk),.reset(reset),.q(sync_reg));
+
+assign sync = sync_reg;
+
+endmodule
+
+
+
+module d_ff(
+                input d,
+                input clk,
+                input reset,
+                output reg q
+            );
+always@(posedge clk,posedge reset)begin
+    if(reset)
+        q <= 0;
+    else
+        q <= d;
+end
 endmodule
