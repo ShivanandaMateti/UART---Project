@@ -1,63 +1,234 @@
-`timescale 1ms/1ps
+`timescale 1ns/1ps
+`default_nettype none
 
-module uart_tx_tb;
+module Uart_transmitter_tb;
 
-    reg clk;
-    reg reset;
-    reg send;
-    reg load;
-    reg [7:0] data_in;
+// parameters
 
-    wire busy;
-    wire Transmitter;
-    
-
-    // Clock
-    initial clk = 0;
-    always #0.001302083 clk = ~clk;  // time period of clock = 2.604167us  // one baud tick occurs for every 0.1041667ms
-
-    // DUTs
-    UART_TRANSMITTER  Trans_DUT(
-
-        .clk(clk),
-        .reset(reset),
-        .load(load),
-        .send(send),
-        .data_in(data_in),
-        .Transmitter(Transmitter),
-        .busy(busy)
-    );
-
-    // Stimulus
-    initial begin
-        $dumpfile("Uart_transmitter.vcd");
-        $dumpvars(0, uart_tx_tb);
-
-                reset = 1 ; send = 1'b0 ; data_in = 8'h00 ; load = 1'b0;
-        #0.1145837  reset = 0; send = 1'b1; data_in = 8'h18; #0.1145837 send = 1'b0;  // simple data transmission check
-        #1.2500004 data_in = 8'h45;                                            // data is send but send=0 so not taken
-        #0.1145837 send = 1'b1 ; data_in = 8'h00 ; #0.1145837 send = 1'b0;          // after making send 1 data is transmitted again
-        #1.145837 reset = 1;send = 1'b1;data_in = 8'h21;#0.1145837 send = 1'b0;   // here reset is asserted so data not taken
-        #1.145837 reset = 0;send = 1'b1;data_in = 8'h07;#0.1145837 send = 1'b0;   // here reset made 0 and send 1 so data read again
-        #1.145837 send = 1'b1 ; data_in = 8'h55 ; #0.1145837 send = 1'b0;         // here after transmitting one byte immediatedly 
-                                                                           // the next byte send still read
-        #1.145837 send = 1'b1 ; data_in = 8'haa ; #0.1145837 send = 1'b0;         // same case
-        #1.5625005 send = 1'b1 ; data_in = 8'hff ; #0.1145837 send = 1'b0;         // here after long gap again data sent
-        #1.145837 send = 1'b1 ; data_in = 8'h0f ; #0.1145837 send = 1'b0; 
-        #1.145837 send = 1'b1 ; data_in = 8'hf0 ; #0.1145837 send = 1'b0;
-        #1.145837 send = 1'b1 ; data_in = 8'h01 ; #0.1145837 send = 1'b0;         // data sent immediately
-        #1.145837 send = 1'b1 ; data_in = 8'h80 ; #0.1145837 send = 1'b0;
-        #1.041667 send = 1'b1 ; data_in = 8'h25 ; #0.1145837 send = 1'b0;         // new data sent at the stop bit of previous data so not taken
-        #1.145837 send = 1'b1 ; data_in = 8'h51 ; #0.1145837 send = 1'b0;         // here before complete transmission of 51 another
-        #0.1145837 send = 1'b1 ; data_in = 8'h96 ; #0.1145837 send = 1'b0;            // data 96,48 is sent so not taken beacuse we are busy 
-        #0.1145837 send = 1'b1 ; data_in = 8'h48 ; #0.1145837 send = 1'b0;
-        #1.145837 send = 1'b1 ; data_in = 8'h88 ; #0.1145837 send = 1'b0;         // data is sent but reset is 1 in between so it goes to idle state
-        #0.3491674 reset = 1 ; #0.3491674 reset = 0;
-        #1.145837 load = 1'b1 ; data_in = 8'h88 ; #0.1145837 load = 1'b0;         // data is loaded again because its missed
-        
+parameter DataWidth = 8;
 
 
-        #1.2500004 $finish;
+// inputs 
+
+reg t_clk;
+reg reset;
+reg send;   // send is asserted before every data sent
+reg load;   // load has a higher priority than send
+reg [DataWidth-1:0] data_in;
+
+
+// outputs
+
+wire Tx;
+wire busy;
+
+// Instantiation
+
+UART_TRANSMITTER   # (
+                            .DataWidth(DataWidth)
+                        )
+                    DUT (
+                            .t_clk(t_clk),
+                            .reset(reset),
+                            .send(send),
+                            .load(load),
+                            .data_in(data_in),
+                            .Tx(Tx),
+                            .busy(busy)
+                        );
+
+// getting baudtick
+
+wire baud_tick;
+assign baud_tick = DUT.B_T.baud_tick;
+
+// clock
+
+initial t_clk = 0;
+always #8 t_clk <= ~t_clk;
+
+// Scoreboard
+
+integer pass_cnt = 0;
+integer fail_cnt = 0;
+
+
+// check any output 
+
+task check_flag;
+        input exp;
+        input actual;
+        begin
+            if(actual==exp)begin
+                $display("\nExpected flag : %0b , Actual flag : %0b",exp,actual);
+                pass_cnt = pass_cnt + 1;
+            end
+            else begin
+                $display("\nExpected flag : %0b , Actual flag : %0b",exp,actual);
+                fail_cnt = fail_cnt + 1;
+            end
+        end
+endtask
+            
+            
+
+
+// Tasks !!
+
+
+// wait for N baudticks
+task wait_N_baud;
+        input integer N;
+        integer count;
+        begin
+            count = 0;
+            while(count<N)begin
+                @(posedge baud_tick);
+                count = count + 1;
+            end
+        end   
+endtask
+
+// applying reset
+task apply_reset;
+        begin
+            reset <= 1;
+            repeat(64) @(posedge t_clk);
+            reset <= 0;
+        end
+endtask
+
+// sending data correctly
+task send_data;
+        input [DataWidth-1 : 0] data;
+        begin
+            @(negedge t_clk);
+            send <= 1'b1;
+            data_in <= data;
+            @(posedge t_clk);
+            send <= 1'b0;
+        end
+endtask
+
+// sending data without send signal
+
+task send_data_s;
+        input [DataWidth-1 : 0] data;
+        begin
+            data_in <= data;
+        end
+endtask
+
+
+// Main test sequence 
+
+initial begin
+
+$dumpfile("Uart_transmitter.vcd");
+$dumpvars(0,Uart_transmitter_tb);
+
+apply_reset;
+send = 1'b0;
+load = 1'b0;
+data_in = 8'h0;
+
+
+// Test - 1 simple data transmission
+$display("\n Test - 1 simple data transmission");
+send_data(8'h24);
+
+// Test - 2 send data without send signal
+$display("\n Test - 2 send data without send signal");
+send_data_s(8'h45);
+wait_N_baud(15);
+// resending the same data with send signal again
+send_data(8'h45);
+wait_N_baud(15);
+
+// Test - 3 reset during send
+$display("\nTest - 3 reset during send");
+fork
+    begin
+        send_data(8'h22);
+        wait_N_baud(11);
     end
+    begin
+        wait_N_baud(5);
+        apply_reset;
+    end
+join
+
+// same data is send again without reset
+send_data(8'h22);
+wait_N_baud(15);
+
+
+// Test - 4 Continuous transmission one after the other
+$display("\nTest - 4 Continuous transmission one after the other");
+send_data(8'h00);wait_N_baud(11);
+send_data(8'h01);wait_N_baud(11);
+send_data(8'h80);wait_N_baud(11);
+send_data(8'hff);wait_N_baud(11);
+
+// Test - 5 Long Idle state
+$display("\nLong idle state");
+apply_reset;
+wait_N_baud(44);
+check_flag(1'b0,busy);$display("\n since busy = 0 we are in idle state");
+
+// Test - 6 Sending data soon after idle data transmission
+$display("\nTest - 6 Sending data soon after idle data transmission");
+send_data(8'h55);wait_N_baud(11);
+send_data(8'haa);wait_N_baud(11);
+send_data(8'h11);wait_N_baud(11);
+send_data(8'h88);wait_N_baud(11);
+
+// Test - 7 New Data Sent without completing old data transmission
+// Here data sent next will be rejected since transmitter was busy
+$display("\nTest - 7 New Data Sent without completing old data transmission");
+send_data(8'h07);wait_N_baud(5);
+send_data(8'h25);wait_N_baud(3);
+send_data(8'h50);
+
+
+// Test - 8 Checking data retransmission using load
+$display("\nTest - 8 Checking data retransmission using load");
+send_data(8'h35);wait_N_baud(5);
+apply_reset;
+check_flag(1'b0,busy);
+$display("\nWe went back to idle state due to reset");
+load = 1;
+wait_N_baud(1);
+load = 0;
+check_flag(1'b1,busy);
+$display("\n We have started retransmission of data so busy = 1");
+
+
+
+// Results 
+
+$display("\n-------------> RESULTS <--------------");
+$display("\n pass count = %0d , fail count = %0d ",pass_cnt,fail_cnt);
+
+#50000;
+$finish;
+
+end
+
+
+// Catching runtime error
+initial begin
+    #5000000000;
+    $display("\n Runtime error");
+    $finish;
+end
 
 endmodule
+
+
+
+
+
+
+
+
