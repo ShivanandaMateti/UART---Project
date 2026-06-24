@@ -10,7 +10,7 @@ A high-performance, parameterizable Universal Asynchronous Receiver-Transmitter 
 * **Frame Configuration**: 11-bit custom packet structure:
   * `1 Start Bit` (Driven `LOW`)
   * `8 Data Bits` (LSB first)
-  * `1 Parity Bit` (Odd Parity: $P = \sim\left(^{\wedge}\text{data\_in}\right)$)
+  * `1 Parity Bit` (Odd Parity: P = ~(^data_in));
   * `1 Stop Bit` (Driven `HIGH`)
 * **Clock Domains**:
   * **Transmitter Clock (`t_clk`)**: $16 \text{ ns}$ cycle duration ($62.5 \text{ MHz}$ base).
@@ -23,8 +23,7 @@ Located in `UART.v`, this top-level module encapsulates both the transmitter and
 
 ### 2. Transmitter Subsystem
 * **`baud_gen.v`**: Implements an explicit down-counter that divides the transmitter clock frequency down by a factor of 16 to generate synchronous periodic `baud_tick` assertions every $256 \text{ ns}$ ($\approx 260 \text{ ns}$ target baud rate window).
-* **`frame_data` Module**: Automatically aggregates incoming 8-bit broadside data arrays with an embedded odd parity bit generated via reduction routing logic alongside static packet boundaries:
-  $$\text{packet} = \{1'\text{b1}, \text{Parity}, \text{data\_in}[7:0], 1'\text{b0}\}$$
+* **`frame_data` Module**: Automatically aggregates incoming 8-bit broadside data arrays with an embedded odd parity bit generated via reduction routing logic alongside static packet boundaries.
 * **`transmitter` Engine**: Governed by sequential control shifting structures:
   * Prioritizes the `load` input signal over `send`. If `load` asserts, the system forces a retransmission of the previously shadowed internal cache register (`packet_load_ready`) to clear line collision errors.
   * Serially shifts out the data structure over the physical `Tx` wire via `packet_temp[0]` and maintains tracking up to bit window frame counter $b = 10$.
@@ -44,18 +43,29 @@ Located in `UART.v`, this top-level module encapsulates both the transmitter and
 
 ---
 
-## Verification Suite and Test Sequences
+## Verification & Simulation Testbenches
 
-The project features a highly thorough simulation matrix split across separate specialized environment setups (`Uart_transmitter_tb.v`, `Uart_receiver_tb.v`, and `UART_tb.v`).
+The repository includes a comprehensive, self-checking simulation verification infrastructure using test components split across targeted test suites (`Uart_transmitter_tb.v`, `Uart_receiver_tb.v`, and `UART_tb.v`).
 
-### Automated Test Cases Executed:
-1. **T-1: Ideal Packet Phase Validation**: Confirms completely flawless parallel processing throughput without internal anomalies.
-2. **T-2: Suppressed Strobe Rejection**: Verifies that raw shifts applied to `data_in` without asserting a valid `send` enable trigger are ignored by the FSM pipeline.
-3. **T-3: Asynchronous Mid-Frame Reset**: Confirms correct line release behavior and structural initialization safety boundaries when a global hardware reset occurs mid-transaction.
-4. **T-4: Zero-Gap Back-to-Back Pipelines**: Floods the transmission link sequentially with continuous byte values (`0x00`, `0x01`, `0x80`, `0xFF`) to confirm zero-cycle stalls between stop and start boundaries.
-5. **T-5: Deep Line Idle Saturation**: Pushes extended high-state intervals ($1280 \text{ ns}$) onto the wire to prove the line remains quiescent and error-free when silent.
-6. **T-6: Frame Break Integrity Testing**: Intentionally drops a packet's stop frame bit to verify the FSM transitions directly to the recovery `error` branch and suppresses invalid outputs.
-7. **T-7: Dynamic Multi-Pattern Stress Testing**: Alternates between complex high-frequency bit patterns (`0x55` [01010101] and `0xAA` [10101010]) to rule out inter-symbol interference and clock-skew errors.
-8. **T-8: Clock Drift & Buffer Tolerances**: Artificially shifts sampling clock edges from an interval of 320 to 324 time units to evaluate and confirm mid-bit phase error margin tracking tolerance.
+### 1. Transmitter Verification Sequence (`TX Suite`)
+The transmitter environment subjects the `UART_TRANSMITTER` hardware to a dense series of structural state test scenarios
+* **Test 1: Simple Data Transmission**: Validates standalone bit alignment accuracy by generating a clean transmission frame for data payload `0x24`.
+* **Test 2: Suppressed Gate Validation**: Asserts a data vector (`0x45`) without pulsing the master `send` strobe to verify the transmitter correctly stays quiescent in its idle posture. It then applies the valid `send` pulse immediately after to verify normal activation.
+* **Test 3: Mid-Frame Asynchronous Reset**: Fires a global hardware reset precisely 5 baud intervals into an active frame transmission sequence (`0x22`) to test recovery and pipeline flushing performance.
+* **Test 4: Zero-Gap Back-to-Back Saturation**: Floods the pipeline sequentially with boundary payloads (`0x00`, `0x01`, `0x80`, `0xFF`) without inserting idle padding to test the stability of successive framing boundaries.
+* **Test 5: Quiescent Idle Verification**: Pushes the system into an extended idle state lasting 44 baud periods to assert and cross-examine that the `busy` status flag settles completely back to a standard zero level.
+* **Test 6: Post-Idle Recovery Pipeline**: Transmits alternating word packets (`0x55`, `0xAA`, `0x11`, `0x88`) immediately following a deep idle phase to check for timing skew anomalies during wakeup.
+* **Test 7: Interrupted Over-Strobe Protection**: Attempts to flood the transmitter interface with new data inputs while it is already hard-locked processing an active bit-shifting routine, proving that incoming overwrites are rejected as long as the module reports a `busy` state.
+* **Test 8: Prioritized Cache Load Retransmission**: Aborts an active cycle using a reset, confirms the core returns to idle, and then asserts the prioritized hardware `load` line high to force an immediate re-injection of the shadowed register back into circulation.
 
+### 2. Receiver Verification Sequence (`RX Suite`)
+The receiver test architecture runs parallel check structures using an embedded scoreboarding engine:
+* **Test 1: Standard Packet Verification**: Forces a fully formatted bitstream pattern (`0x12`) down the serial pin to verify clean detection and tracking.
+* **Test 2: Corrupted Mid-Packet Reset Phase**: Asserts a reset pulse exactly 128 clock ticks into an incoming stream to verify that invalid fragments are dismissed and the `done` register correctly stays low.
+* **Test 3: Parity Violation Rejection**: Injects an explicit parity error into payload packet `0x07` to confirm the internal engine catches the anomaly, drops execution flags, and suppresses corrupted data.
+* **Test 4: Deep Silence Noise Gate**: Leaves the line completely un-driven for 1280 sample ticks to confirm the state machine doesn't trip on idle lines.
+* **Test 5: Multi-Packet Streaming Stream**: Backs four complete 11-bit frame packages together continuously to ensure no sampling alignment shifts occur across dense processing cycles.
+* **Test 6: Framed Stop Bit Violation**: Deliberately breaks a frame boundary by feeding a `LOW` signal during the expected stop-bit window, proving the receiver drops the frame and flags an operational failure.
+* **Test 7: High-Frequency Waveform Stressing**: Alternates high-frequency signal packets (`0x55`, `0xAA`, `0x0F`, `0xF0`) across the receiver to verify performance under high bit-transition densities.
+* **Test 8: Phase Margin Drift Tolerance**: Artificially warps the baud rate frame windows out from a 320 to a skewed 324 scale metric to verify the FSM mid-bit oversampling matrix safely isolates and decodes misaligned data streams.
 ---
