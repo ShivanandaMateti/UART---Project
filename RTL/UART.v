@@ -18,7 +18,7 @@ module UART_Protocol #(
                                 // outputs to rx
                                 output[DataWidth-1:0] data_out,
                                 output done,
-                                output load_out,
+                                output load_out
 
                         );
 
@@ -37,7 +37,7 @@ UART_TRANSMITTER   #(
                                 .busy(busy)
                                 );
 
-stage2_sync    (
+stage2_sync    Tx_synchronisation(
                     .in(Tx),
                     .reset(reset),
                     .clk(r_clk),
@@ -496,13 +496,12 @@ module stage2_sync
                         input clk,
                         output sync
                     );
-reg q;
-reg sync_reg;
+wire q;
+
 
 d_ff     stage1  (.d(in),.clk(clk),.reset(reset),.q(q));
-d_ff     stage2  (.d(q),.clk(clk),.reset(reset),.q(sync_reg));
+d_ff     stage2  (.d(q),.clk(clk),.reset(reset),.q(sync));
 
-assign sync = sync_reg;
 
 endmodule
 
@@ -512,12 +511,14 @@ module d_ff(
                 input d,
                 input clk,
                 input reset,
-                output reg q
+                output  q
             );
+reg Q;
 always@(posedge clk,posedge reset)begin
     if(reset)
-        q <= 0;
+        Q <= 0;
     else
-        q <= d;
+        Q <= d;
 end
+assign q = Q;
 endmodule
